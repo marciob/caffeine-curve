@@ -19,7 +19,8 @@ Differences from the original are listed at the end.
 - **Hover** over the chart to read the level at any time of day: `18:55 · 95 MG`.
 - **Drag** a cup (the dot under the axis, or the bright column just after it) to move it.
 - **Click** an empty spot on the chart to add a cup. Click a selected cup to remove it.
-- **Settings** (top right) opens the parameters. They are saved in your browser.
+- **Reset** (top right, circular arrow) puts the three default cups back: 08:00, 11:00 and 15:30.
+- **Settings** (top right, sliders) opens the parameters. They are saved in your browser. **Defaults** inside the panel resets only the parameters.
 - Keyboard: `Esc` deselects, `Delete` removes the selected cup, arrow keys move it by 15 minutes.
 
 On a phone the page uses the full screen. Touch and hold on the chart to read a value. Tap to add a cup.

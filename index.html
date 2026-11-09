@@ -55,18 +55,25 @@
   canvas#c:focus-visible { box-shadow: 0 0 0 1px var(--mute-2); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-  .cfg-btn {
-    position: absolute; top: 12px; right: 12px; z-index: 3;
+  .tools { position: absolute; top: 12px; right: 12px; z-index: 3; display: flex; gap: 6px; }
+  .tool {
+    width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
     background: transparent; border: 1px solid var(--line); color: var(--mute);
-    font: 500 11px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
-    padding: 8px 10px; border-radius: 2px; cursor: pointer;
+    border-radius: 2px; cursor: pointer;
   }
-  .cfg-btn:hover, .cfg-btn[aria-expanded="true"] { color: var(--fg-2); border-color: var(--mute); }
-  .cfg-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  .tool svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .tool:hover, .tool[aria-expanded="true"] { color: var(--fg-2); border-color: var(--mute); }
+  .tool:active svg { transform: scale(0.92); }
+  .tool:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .tool svg { transition: transform 120ms ease-out; }
+    .tool.spin svg { animation: spin 420ms ease-out; }
+    @keyframes spin { from { transform: rotate(-360deg); } to { transform: none; } }
+  }
 
   .cfg[hidden] { display: none; }
   .cfg {
-    position: absolute; top: 46px; right: 12px; z-index: 2;
+    position: absolute; top: 54px; right: 12px; z-index: 2;
     width: min(344px, calc(100% - 24px));
     background: var(--panel); border: 1px solid var(--line); border-radius: 2px;
     padding: 14px 16px 16px;
@@ -116,13 +123,20 @@
 
 <div class="stage" id="stage">
   <canvas id="c" tabindex="0" aria-label="Caffeine level through the day. Drag a cup to move it, tap the chart to add a cup, tap a selected cup to remove it."></canvas>
-  <button class="cfg-btn" id="cfgBtn" type="button" aria-expanded="false" aria-controls="cfg">Settings</button>
+  <div class="tools">
+    <button class="tool" id="resetCups" type="button" title="Reset cups" aria-label="Reset cups to the default three">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+    <button class="tool" id="cfgBtn" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="cfg">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/></svg>
+    </button>
+  </div>
   <section class="cfg" id="cfg" hidden aria-label="Settings">
     <h2>Parameters</h2>
     <div id="rows"></div>
     <div class="cfg-foot">
       <p class="hint">Saved in this browser. Half-life 5 h and 95 mg per cup are typical adult values.</p>
-      <button class="reset" id="reset" type="button">Reset</button>
+      <button class="reset" id="reset" type="button" aria-label="Reset parameters to defaults">Defaults</button>
     </div>
   </section>
 </div>
@@ -167,11 +181,8 @@
   const KE = () => Math.LN2 / S.halfLife;
 
   // ---------- state ----------
-  let cups = [
-    { t: 8, sel: 0, act: 0 },
-    { t: 11, sel: 0, act: 0 },
-    { t: 15.5, sel: 0, act: 0 },
-  ];
+  const DEFAULT_CUPS = [8, 11, 15.5];
+  let cups = DEFAULT_CUPS.map(t => ({ t, sel: 0, act: 0 }));
   let selected = null, hovered = null, drag = null, pending = null, pointer = null;
   let maxMgAnim = 160, peakAlpha = 0;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -646,7 +657,15 @@
   });
   document.getElementById('reset').addEventListener('click', () => {
     Object.assign(S, DEF); applySettings(); save(); refreshPanel();
-    announce('Settings reset to defaults.');
+    announce('Parameters reset to defaults.');
+  });
+  const resetBtn = document.getElementById('resetCups');
+  resetBtn.addEventListener('click', () => {
+    cups = DEFAULT_CUPS.map(t => ({ t, sel: 0, act: 0 }));
+    selected = null; hovered = null; drag = null; pending = null;
+    applySettings(); save();
+    resetBtn.classList.remove('spin'); void resetBtn.offsetWidth; resetBtn.classList.add('spin');
+    announce('Cups reset: 08:00, 11:00 and 15:30.');
   });
   addEventListener('keydown', e => {
     if (e.key === 'Escape' && !cfg.hidden) { cfg.hidden = true; cfgBtn.setAttribute('aria-expanded', 'false'); cfgBtn.focus(); }
