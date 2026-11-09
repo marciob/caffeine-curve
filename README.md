@@ -2,7 +2,7 @@
 
 An interactive chart of the caffeine in your body through one day. Drag your cups along the timeline and see how much is still in you at bed time.
 
-**Live:** https://caffeine-curve.vercel.app
+**Live:** https://caffeine-curve-sigma.vercel.app
 
 ## Where this comes from
 
