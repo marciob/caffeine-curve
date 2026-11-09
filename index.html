@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interactive chart of caffeine in your body through the day. Drag cups, add or remove them, set your own parameters.">
+<meta name="theme-color" content="#0c0c0c">
+<title>Caffeine Curve</title>
+<!--
+  Caffeine Curve
+  A working rebuild of the UI designed by Charles Postiaux (@PostiauxCharles):
+  https://x.com/PostiauxCharles/status/2119801461278146758
+  Code: MIT. Design credit: Charles Postiaux.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Layout: one canvas instrument. Landscape = 1080x1080 square like the original; portrait = full screen, re-flowed. Dark-only. */
+  :root {
+    --bg: #0c0c0c;
+    --panel: #121212;
+    --field: #0c0c0c;
+    --line: #262626;
+    --fg: #f3f3f3;
+    --fg-2: #dbdbdb;
+    --mute: #717171;
+    --mute-2: #3e3e3e;
+    --accent: #2e82ff;
+    --font-mono: "SF Mono", "Geist Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .stage { position: relative; max-width: 100%; }
+  canvas#c { display: block; max-width: 100%; outline: none; touch-action: none; }
+  canvas#c:focus-visible { box-shadow: 0 0 0 1px var(--mute-2); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .cfg-btn {
+    position: absolute; top: 12px; right: 12px; z-index: 3;
+    background: transparent; border: 1px solid var(--line); color: var(--mute);
+    font: 500 11px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 8px 10px; border-radius: 2px; cursor: pointer;
+  }
+  .cfg-btn:hover, .cfg-btn[aria-expanded="true"] { color: var(--fg-2); border-color: var(--mute); }
+  .cfg-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+  .cfg[hidden] { display: none; }
+  .cfg {
+    position: absolute; top: 46px; right: 12px; z-index: 2;
+    width: min(344px, calc(100% - 24px));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 2px;
+    padding: 14px 16px 16px;
+    display: grid; gap: 10px;
+    font-size: 12px;
+  }
+  .cfg h2 { margin: 0 0 2px; font: 500 11px/1 var(--font-mono); letter-spacing: 0.1em; color: var(--mute); text-transform: uppercase; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; min-width: 0; }
+  .lbl { font-size: 11px; letter-spacing: 0.08em; color: var(--fg-2); text-transform: uppercase; }
+  .sub { display: block; font-size: 10px; letter-spacing: 0.04em; color: var(--mute); margin-top: 3px; text-transform: none; }
+  .ctl { display: flex; align-items: center; gap: 4px; }
+  .ctl button {
+    width: 32px; height: 32px; flex: 0 0 auto;
+    background: #1a1a1a; border: 1px solid var(--line); color: var(--fg-2);
+    font: 16px/1 var(--font-mono); cursor: pointer; border-radius: 2px;
+  }
+  .ctl button:hover { border-color: var(--mute); }
+  .ctl button:focus-visible, .ctl input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .ctl input {
+    width: 62px; height: 32px; box-sizing: border-box; text-align: center;
+    background: var(--field); border: 1px solid var(--line); color: var(--fg);
+    font: 13px var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 2px;
+    -moz-appearance: textfield; appearance: textfield;
+  }
+  .ctl input::-webkit-outer-spin-button, .ctl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .ctl .unit { font-size: 10px; letter-spacing: 0.06em; color: var(--mute); width: 26px; text-align: left; }
+  .cfg-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 4px; }
+  .reset { background: transparent; border: 1px solid var(--line); color: var(--mute); font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 10px; border-radius: 2px; cursor: pointer; }
+  .reset:hover { color: var(--fg-2); border-color: var(--mute); }
+  .hint { font-size: 10px; color: var(--mute); line-height: 1.5; margin: 0; }
+
+  @media (max-width: 699px) {
+    .cfg {
+      top: auto; right: 0; left: 0; bottom: 0; width: auto;
+      border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      max-height: 70%; overflow-y: auto;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .cfg { animation: rise 160ms ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <canvas id="c" tabindex="0" aria-label="Caffeine level through the day. Drag a cup to move it, tap the chart to add a cup, tap a selected cup to remove it."></canvas>
+  <button class="cfg-btn" id="cfgBtn" type="button" aria-expanded="false" aria-controls="cfg">Settings</button>
+  <section class="cfg" id="cfg" hidden aria-label="Settings">
+    <h2>Parameters</h2>
+    <div id="rows"></div>
+    <div class="cfg-foot">
+      <p class="hint">Saved in this browser. Half-life 5 h and 95 mg per cup are typical adult values.</p>
+      <button class="reset" id="reset" type="button">Reset</button>
+    </div>
+  </section>
+</div>
+<p class="sr" id="status" aria-live="polite"></p>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- settings ----------
+  const DEF = { dose: 95, halfLife: 5, tPeak: 65, bed: 23, limit: 50, start: 6 };
+  const FIELDS = [
+    { k: 'dose', label: 'Cup size', sub: 'caffeine per cup', unit: 'mg', min: 10, max: 400, step: 5 },
+    { k: 'halfLife', label: 'Half-life', sub: 'hours to halve the level', unit: 'h', min: 2, max: 12, step: 0.5 },
+    { k: 'tPeak', label: 'Time to peak', sub: 'minutes from cup to peak', unit: 'min', min: 15, max: 120, step: 5 },
+    { k: 'bed', label: 'Bed time', sub: 'level is checked here', unit: '', step: 0.25, time: true },
+    { k: 'limit', label: 'Sleep limit', sub: 'mg still in you at bed', unit: 'mg', min: 10, max: 300, step: 5 },
+    { k: 'start', label: 'Day starts', sub: 'left edge of the chart', unit: '', min: 0, max: 12, step: 1, time: true },
+  ];
+  const STORE_KEY = 'caffeine-curve-v1';
+  const S = { ...DEF, ka: 3 };
+
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const mix = (c1, c2, k) => [lerp(c1[0], c2[0], k), lerp(c1[1], c2[1], k), lerp(c1[2], c2[2], k)];
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const fmtT = t => {
+    let m = Math.round(t * 60); let h = Math.floor(m / 60) % 24; m = m % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  };
+
+  // absorption rate from time-to-peak (Bateman function): solve ln(ka/ke)/(ka-ke) = tmax
+  function solveKa(tmaxH, ke) {
+    let lo = ke * 1.0001, hi = 400;
+    for (let i = 0; i < 80; i++) {
+      const mid = (lo + hi) / 2;
+      const t = Math.log(mid / ke) / (mid - ke);
+      if (t > tmaxH) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+  const KE = () => Math.LN2 / S.halfLife;
+
+  // ---------- state ----------
+  let cups = [
+    { t: 8, sel: 0, act: 0 },
+    { t: 11, sel: 0, act: 0 },
+    { t: 15.5, sel: 0, act: 0 },
+  ];
+  let selected = null, hovered = null, drag = null, pending = null, pointer = null;
+  let maxMgAnim = 160, peakAlpha = 0;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function applySettings() {
+    const ke = KE();
+    const maxPeak = 0.95 / ke; // tmax approaches 1/ke as absorption slows
+    S.tPeak = clamp(S.tPeak, 15, Math.min(120, Math.floor(maxPeak * 60 / 5) * 5));
+    S.ka = solveKa(S.tPeak / 60, ke);
+    S.bed = clamp(S.bed, S.start + 10, S.start + 23.75);
+    for (const c of cups) {
+      while (c.t < S.start) c.t += 24;
+      while (c.t >= S.start + 24) c.t -= 24;
+    }
+  }
+  const contrib = dt => dt <= 0 ? 0 : S.dose * S.ka / (S.ka - KE()) * (Math.exp(-KE() * dt) - Math.exp(-S.ka * dt));
+
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        cups: cups.map(c => +c.t.toFixed(4)),
+        settings: { dose: S.dose, halfLife: S.halfLife, tPeak: S.tPeak, bed: S.bed, limit: S.limit, start: S.start },
+      }));
+    } catch (e) { /* storage unavailable: run without it */ }
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY); if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d && d.settings) for (const f of FIELDS) {
+        const v = +d.settings[f.k];
+        if (Number.isFinite(v)) S[f.k] = v;
+      }
+      if (d && Array.isArray(d.cups) && d.cups.length <= 8 && d.cups.every(v => Number.isFinite(v))) {
+        cups = d.cups.map(t => ({ t, sel: 0, act: 0 }));
+      }
+    } catch (e) { /* ignore bad or blocked storage */ }
+  }
+  load();
+  for (const f of FIELDS) if (!f.time) S[f.k] = clamp(S[f.k], f.min, f.max);
+  S.start = clamp(Math.round(S.start), 0, 12);
+  applySettings();
+
+  // ---------- canvas + layout ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+  const statusEl = document.getElementById('status');
+  const FONT = '"SF Mono", "Geist Mono", ui-monospace, Menlo, Consolas, monospace';
+  const BG = [12, 12, 12], BLUE = [46, 130, 255], WHITE = [255, 255, 255], HANDLE_GREY = [217, 217, 217];
+  const CELL = 8, FIT_ROWS = 47, FLOOR_MG = 160, MAXROWS = 56, HOURS = 24;
+
+  let LY = null; // layout in logical pixels
+  let dpr = 1, cw = 600, ch = 600;
+
+  function resize() {
+    const b = document.body;
+    const bw = Math.max(200, b.clientWidth - 32), bh = Math.max(200, b.clientHeight);
+    if (bw < bh) { cw = bw; ch = bh; } else { cw = ch = Math.min(bw, bh); }
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const LW = cw >= 700 ? 1080 : clamp(Math.round(cw * 1.64), 640, 1080);
+    const LH = Math.round(LW * ch / cw);
+    const compact = LW < 1080;
+    const L = compact ? 28.5 : 130.5;
+    const R = compact ? LW - 50.5 : LW - 130.5;
+    const W = R - L;
+    const COLS = Math.floor((W - 4) / CELL) + 1;
+    let yAxis;
+    if (!compact && LH === LW) yAxis = 804.5;
+    else {
+      const block = 454 + 40 + 75 + 20; // labels above the chart, axis labels below
+      const top = 90 + Math.max(0, ((LH - 150) - block)) / 2;
+      yAxis = Math.round(clamp(top + 40 + 454, 560, LH - 120)) + 0.5;
+    }
+    LY = {
+      LW, LH, L, R, W, COLS, compact,
+      yAxis, yHandle: yAxis + 28, row0: yAxis - 5, lineTop: yAxis - 454.5,
+      label1: yAxis - 481.5, label2: yAxis - 457.5, yAxisLabels: yAxis + 75.5,
+      titleY: 48, subY: 77, footY: LH - 29, padX: 33,
+      u: cw / LW, // css px per logical px
+    };
+    stage.style.width = cw + 'px'; stage.style.height = ch + 'px';
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  const t2x = t => LY.L + (t - S.start) / HOURS * LY.W;
+  const x2t = x => S.start + (x - LY.L) / LY.W * HOURS;
+  const colX = k => LY.L + 4 + CELL * k;
+  const rowY = r => LY.row0 - CELL * r;
+
+  // ---------- model helpers ----------
+  const totalAt = t => { let s = 0; for (const c of cups) s += contrib(t - c.t); return s; };
+
+  function findPeak() {
+    let best = 0, bt = S.start;
+    for (let i = 0; i <= HOURS * 60; i += 2) {
+      const t = S.start + i / 60; const v = totalAt(t);
+      if (v > best) { best = v; bt = t; }
+    }
+    return { mg: best, t: bt };
+  }
+
+  function footerText() {
+    if (!cups.length) return LY.compact ? 'TAP THE CHART TO ADD A CUP' : 'CLICK ON THE CHART TO ADD A CUP';
+    const sorted = [...cups].sort((a, b) => a.t - b.t);
+    const others = sorted.slice(0, -1);
+    const night = T => {
+      let m = 0;
+      for (let t = S.bed; t <= S.bed + 7; t += 1 / 12) {
+        let v = T == null ? 0 : contrib(t - T);
+        for (const c of others) v += contrib(t - c.t);
+        if (v > m) m = v;
+      }
+      return m;
+    };
+    if (night(null) > S.limit) return 'OVER THE LINE EVEN WITHOUT THE LAST CUP';
+    for (let T = S.bed; T >= S.start; T -= 0.25) {
+      if (night(T) <= S.limit) return 'LAST CUP BY ' + fmtT(T);
+    }
+    return 'NO ROOM FOR ANOTHER CUP TODAY';
+  }
+
+  // column top brightness by hours since the most recent cup
+  function topIntensity(age) {
+    if (!isFinite(age)) return 0.25;
+    let bump;
+    if (age < 0.6) bump = 0.72 + 0.28 * (age / 0.6);
+    else { const z = (age - 0.6) / 0.38; bump = Math.exp(-0.5 * z * z); }
+    return 0.25 + 0.75 * bump;
+  }
+  // how blue a selected cup's layer still looks, by hours since that cup
+  function colorFresh(age) {
+    if (age < 0.7) return 1;
+    const z = (age - 0.7) / 0.7; return Math.exp(-0.5 * z * z);
+  }
+  const dotRadius = I => 1 + 2.3 * Math.pow(clamp((I - 0.13) / 0.6, 0, 1), 0.8);
+
+  // separable box blur over the grid; the bottom edge counts as filled
+  function blur(src, rad, COLS) {
+    const tmp = new Float32Array(COLS * MAXROWS), out = new Float32Array(COLS * MAXROWS);
+    const n = 2 * rad + 1;
+    for (let r = 0; r < MAXROWS; r++) for (let c = 0; c < COLS; c++) {
+      let s = 0;
+      for (let d = -rad; d <= rad; d++) { const cc = c + d; if (cc >= 0 && cc < COLS) s += src[cc * MAXROWS + r]; }
+      tmp[c * MAXROWS + r] = s / n;
+    }
+    for (let c = 0; c < COLS; c++) for (let r = 0; r < MAXROWS; r++) {
+      let s = 0;
+      for (let d = -rad; d <= rad; d++) {
+        const rr = r + d;
+        if (rr < 0) s += tmp[c * MAXROWS]; else if (rr < MAXROWS) s += tmp[c * MAXROWS + rr];
+      }
+      out[c * MAXROWS + r] = s / n;
+    }
+    return out;
+  }
+
+  // ---------- drawing ----------
+  function text(str, x, y, size, color, align = 'left', weight = 400) {
+    ctx.font = `${weight} ${size}px ${FONT}`;
+    ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = color; ctx.fillText(str, x, y);
+  }
+  function measure(str, size, weight = 400) { ctx.font = `${weight} ${size}px ${FONT}`; return ctx.measureText(str).width; }
+  function dot(x, y, r, style) { ctx.fillStyle = style; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const k = reduced ? 1 : 1 - Math.exp(-dt / 0.16);
+    const { LW, LH, L, R, W, COLS, yAxis, yHandle, lineTop, label1, label2 } = LY;
+
+    for (const c of cups) {
+      c.sel += ((c === selected ? 1 : 0) - c.sel) * k;
+      c.act += (((c === selected || c === hovered) ? 1 : 0) - c.act) * k;
+    }
+    const peak = findPeak();
+    maxMgAnim += (Math.max(FLOOR_MG, peak.mg) - maxMgAnim) * (reduced ? 1 : 1 - Math.exp(-dt / 0.12));
+    const rowsOf = mg => mg / maxMgAnim * FIT_ROWS;
+    const yOf = mg => LY.row0 + 4 - rowsOf(mg) * CELL;
+
+    const peakX = t2x(peak.t), bedX = t2x(S.bed);
+    const bedMg = Math.round(totalAt(S.bed));
+    const bl1 = 'BED ' + fmtT(S.bed), bl2 = bedMg + ' MG STILL IN YOU';
+    const bl2w = measure(bl2, 20);
+    const bedFlip = bedX + 13 + bl2w > LW - 8; // bed label drawn to the left of its line near the right edge
+    const peakLabel = 'PEAK ' + Math.round(peak.mg) + ' MG';
+    let peakVisible = cups.length > 0 && peak.mg > 1 && peak.t < S.bed;
+    if (peakVisible) {
+      peakVisible = bedFlip
+        ? peakX + 13 + measure(peakLabel, 20) < bedX - 13 - bl2w - 24
+        : (bedX - peakX) > 0.287 * W;
+    }
+    peakAlpha += ((peakVisible ? 1 : 0) - peakAlpha) * k;
+
+    const order = [...cups].sort((a, b) => (a.sel - b.sel) || (a.t - b.t));
+    const cupCols = new Set(cups.map(c => Math.round((t2x(c.t) - L - 4) / CELL)));
+
+    ctx.setTransform(dpr * cw / LW, 0, 0, dpr * cw / LW, 0, 0);
+    ctx.fillStyle = rgba(BG, 1); ctx.fillRect(0, 0, LW, LH);
+
+    // per-column data
+    const mask = new Float32Array(COLS * MAXROWS);
+    const colData = new Array(COLS);
+    for (let kk = 0; kk < COLS; kk++) {
+      const x = colX(kk), t = x2t(x);
+      const bounds = []; let cum = 0;
+      for (const c of order) { cum += contrib(t - c.t); bounds.push(rowsOf(cum)); }
+      const rowsF = rowsOf(cum);
+      const nFull = Math.floor(rowsF), frac = rowsF - nFull;
+      const count = Math.min(MAXROWS, nFull + (frac > 0.3 ? 1 : 0));
+      let lastCup = -Infinity;
+      for (const c of cups) if (c.t <= t && c.t > lastCup) lastCup = c.t;
+      const topI = cupCols.has(kk) ? 0.78 : topIntensity(t - lastCup);
+      colData[kk] = { x, t, rowsF, count, frac, topI, bounds };
+      for (let r = 0; r < count; r++) mask[kk * MAXROWS + r] = 1;
+    }
+
+    // halo
+    const near = blur(mask, 2, COLS), far = blur(mask, 14, COLS);
+    for (let kk = 0; kk < COLS; kk++) {
+      const x = colX(kk);
+      for (let r = colData[kk].count; r < MAXROWS; r++) {
+        const a = 0.12 * near[kk * MAXROWS + r] + 0.10 * far[kk * MAXROWS + r];
+        if (a < 0.012) continue;
+        dot(x, rowY(r), 1.05, rgba(WHITE, a));
+      }
+    }
+
+    // filled dots
+    for (let kk = 0; kk < COLS; kk++) {
+      const d = colData[kk];
+      if (!d.count) continue;
+      const topRow = Math.max(1, d.count - 1);
+      let li = 0;
+      for (let r = 0; r < d.count; r++) {
+        while (li < d.bounds.length - 1 && d.bounds[li] < r + 0.5) li++;
+        const lc = order[li];
+        const sel = lc ? lc.sel * colorFresh(d.t - lc.t) : 0;
+        const I = 0.13 + (d.topI - 0.13) * Math.pow(r / topRow, 1.2);
+        let rad = dotRadius(I);
+        if (r === d.count - 1 && d.frac > 0.3 && d.frac < 1) rad *= 0.5 + 0.5 * d.frac;
+        dot(d.x, rowY(r), rad, rgba(mix(WHITE, BLUE, sel), lerp(I, Math.min(1, I * 1.25), sel)));
+      }
+    }
+
+    // cup guide lines
+    for (const c of cups) {
+      const cx = t2x(c.t);
+      const kk = Math.round((cx - L - 4) / CELL);
+      const d = colData[kk];
+      const active = Math.max(c.sel, c.act);
+      const gcol = mix(WHITE, BLUE, active), galpha = lerp(0.22, 0.75, active);
+      for (let y = yAxis + 3; y < yHandle - 11; y += CELL) dot(cx, y, 1, rgba(gcol, galpha));
+      if (d && c.sel < 0.999) {
+        for (let r = 0; r < d.count; r++) dot(d.x, rowY(r), 1.55, rgba(BG, 0.7 * (1 - c.sel)));
+      }
+      if (c.sel > 0.001) {
+        let topRows = 0;
+        for (let j = Math.max(0, kk); j < COLS; j++) {
+          if (colData[j].t > c.t + 2.2) break;
+          if (colData[j].rowsF > topRows) topRows = colData[j].rowsF;
+        }
+        const yTop = LY.row0 - CELL * Math.max(0, Math.round(topRows) - 1);
+        for (let y = yAxis - 5; y >= yTop; y -= CELL) dot(cx, y, 1.2, rgba(BLUE, 0.85 * c.sel));
+      }
+    }
+
+    // axis
+    ctx.strokeStyle = 'rgba(255,255,255,0.17)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(L, yAxis); ctx.lineTo(R, yAxis); ctx.stroke();
+    for (let h = 0; h <= HOURS; h += 3) {
+      const x = Math.round(t2x(S.start + h)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, yAxis - 4); ctx.lineTo(x, yAxis + 4); ctx.stroke();
+      if (h % 6 === 0) text(String((S.start + h) % 24).padStart(2, '0'), x, LY.yAxisLabels, 20, 'rgba(255,255,255,0.2)', 'center');
+    }
+
+    // sleep limit line
+    const yT = yOf(S.limit);
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath(); ctx.moveTo(L, Math.round(yT) + 0.5); ctx.lineTo(R, Math.round(yT) + 0.5); ctx.stroke(); ctx.restore();
+    text(String(S.limit), R + 13, yT + 5, 20, 'rgba(255,255,255,0.42)');
+
+    // bed line + labels (flip to the left when near the right edge)
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.moveTo(Math.round(bedX) + 0.5, lineTop); ctx.lineTo(Math.round(bedX) + 0.5, yAxis - 13); ctx.stroke();
+    text(bl1, bedX + (bedFlip ? -13 : 13), label1, 20, '#f4f4f4', bedFlip ? 'right' : 'left');
+    text(bl2, bedX + (bedFlip ? -13 : 13), label2, 20, '#dbdbdb', bedFlip ? 'right' : 'left');
+
+    // peak marker
+    if (peakAlpha > 0.01) {
+      const kk = clamp(Math.round((peakX - L - 4) / CELL), 0, COLS - 1);
+      const yTop = rowY(Math.max(0, colData[kk].count - 1)) - 10;
+      ctx.strokeStyle = `rgba(255,255,255,${0.2 * peakAlpha})`;
+      ctx.beginPath(); ctx.moveTo(Math.round(peakX) + 0.5, lineTop); ctx.lineTo(Math.round(peakX) + 0.5, Math.min(yTop, yAxis - 13)); ctx.stroke();
+      text(peakLabel, peakX + 13, label1, 20, `rgba(244,244,244,${peakAlpha})`);
+      text(fmtT(peak.t), peakX + 13, label2, 20, `rgba(115,115,115,${peakAlpha})`);
+    }
+
+    // handles + time labels
+    for (const c of cups) {
+      const cx = t2x(c.t), active = Math.max(c.sel, c.act);
+      dot(cx, yHandle, 8 + 2.5 * active, rgba(mix(HANDLE_GREY, BLUE, active), 1));
+      if (active > 0.01) text(fmtT(c.t), cx, yHandle + 27, 20, rgba(BLUE, active), 'center');
+    }
+
+    // readout at the pointer (hover, or a finger pressed on the chart)
+    if (pointer && !hovered && !drag && pointer.x >= L && pointer.x <= R && pointer.y >= lineTop - 60 && pointer.y <= yAxis) {
+      const t = x2t(pointer.x), mg = totalAt(t);
+      const y = yOf(mg);
+      const str = fmtT(t) + ' · ' + Math.round(mg) + ' MG';
+      const flip = pointer.x + 15 + measure(str, 20) > LW - 8;
+      dot(pointer.x, y, 4, '#e6e6e6');
+      text(str, pointer.x + (flip ? -15 : 15), y - 18, 20, '#e6e6e6', flip ? 'right' : 'left');
+    }
+
+    // header / footer
+    text('CAFFEINE', LY.padX, LY.titleY, 22, '#f3f3f3', 'left', 500);
+    const n = cups.length;
+    const hl = Number.isInteger(S.halfLife) ? S.halfLife : S.halfLife.toFixed(1);
+    text(`${n} ${n === 1 ? 'CUP' : 'CUPS'} · ${n * S.dose} MG · HALF-LIFE ${hl}H`, LY.padX, LY.subY, 20, '#717171');
+    text(footerText(), LY.padX, LY.footY, 20, '#d8d8d8');
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------- interaction ----------
+  function toLogical(e) {
+    const r = canvas.getBoundingClientRect();
+    const s = LY.LW / r.width; // same scale on both axes
+    return { x: (e.clientX - r.left) * s, y: (e.clientY - r.top) * s };
+  }
+  function hitCup(p) {
+    const hitR = Math.max(16, 24 / LY.u);
+    for (const c of cups) if (Math.hypot(p.x - t2x(c.t), p.y - LY.yHandle) <= hitR) return c;
+    if (p.y < LY.yAxis && p.y > LY.lineTop - 60 && p.x >= LY.L && p.x <= LY.R) {
+      const t = x2t(p.x);
+      let best = null;
+      for (const c of cups) {
+        if (t >= c.t - 0.05 && t <= c.t + 1.4 && (!best || c.t > best.t)) {
+          const yTop = LY.row0 + 4 - (totalAt(t) / maxMgAnim * FIT_ROWS) * CELL;
+          if (p.y >= yTop - 8) best = c;
+        }
+      }
+      return best;
+    }
+    return null;
+  }
+  const announce = s => { statusEl.textContent = s; };
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button !== undefined && e.button !== 0) return;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.focus({ preventScroll: true });
+    const p = toLogical(e); pointer = p;
+    const c = hitCup(p);
+    if (c) {
+      drag = { cup: c, offset: x2t(p.x) - c.t, wasSelected: selected === c, moved: false, sx: p.x, sy: p.y };
+      selected = c; hovered = c;
+    } else if (p.x >= LY.L && p.x <= LY.R && p.y >= LY.lineTop - 60 && p.y <= LY.yHandle + 20) {
+      pending = { sx: p.x, sy: p.y, moved: false };
+    }
+  });
+  canvas.addEventListener('pointermove', e => {
+    const p = toLogical(e); pointer = p;
+    if (drag) {
+      if (Math.hypot(p.x - drag.sx, p.y - drag.sy) > 3) drag.moved = true;
+      const t = clamp(x2t(p.x) - drag.offset, S.start, S.start + HOURS - 1 / 60);
+      drag.cup.t = Math.round(t * 60) / 60;
+      return;
+    }
+    if (pending) { if (Math.hypot(p.x - pending.sx, p.y - pending.sy) > 6) pending.moved = true; return; }
+    hovered = hitCup(p);
+  });
+  function endPointer(e) {
+    const p = toLogical(e); pointer = p;
+    const touch = e.pointerType === 'touch';
+    if (drag) {
+      if (!drag.moved && drag.wasSelected) {
+        cups = cups.filter(c => c !== drag.cup);
+        if (selected === drag.cup) selected = null;
+        hovered = null;
+        announce('Cup removed. ' + cups.length + ' cups.');
+      } else {
+        announce('Cup at ' + fmtT(drag.cup.t) + '. ' + Math.round(totalAt(S.bed)) + ' mg at bed.');
+      }
+      drag = null; save();
+    } else if (pending) {
+      if (!pending.moved && cups.length < 8 && p.x >= LY.L && p.x <= LY.R) {
+        const t = Math.round(clamp(x2t(p.x), S.start, S.start + HOURS - 1 / 60) * 60) / 60;
+        const c = { t, sel: 0, act: 0 };
+        cups.push(c); hovered = c; save();
+        announce('Cup added at ' + fmtT(t) + '. ' + cups.length + ' cups.');
+      }
+      pending = null;
+    }
+    if (touch) { pointer = null; hovered = null; }
+    else hovered = hitCup(p);
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', () => { drag = null; pending = null; pointer = null; hovered = null; });
+  canvas.addEventListener('pointerleave', () => { if (!drag) { pointer = null; hovered = null; } });
+  canvas.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { selected = null; }
+    else if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
+      cups = cups.filter(c => c !== selected); selected = null; hovered = null; save(); announce('Cup removed.');
+    }
+    else if (selected && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const step = (e.shiftKey ? 1 : 0.25) * (e.key === 'ArrowLeft' ? -1 : 1);
+      selected.t = clamp(selected.t + step, S.start, S.start + HOURS - 1 / 60);
+      save(); e.preventDefault();
+    }
+  });
+
+  // ---------- settings panel ----------
+  const cfg = document.getElementById('cfg');
+  const cfgBtn = document.getElementById('cfgBtn');
+  const rowsEl = document.getElementById('rows');
+  const inputs = {};
+
+  for (const f of FIELDS) {
+    const row = document.createElement('div'); row.className = 'row';
+    const lbl = document.createElement('label'); lbl.className = 'lbl'; lbl.htmlFor = 'f-' + f.k;
+    lbl.textContent = f.label;
+    const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = f.sub; lbl.appendChild(sub);
+    const ctl = document.createElement('div'); ctl.className = 'ctl';
+    const minus = document.createElement('button'); minus.type = 'button'; minus.textContent = '−'; minus.setAttribute('aria-label', f.label + ' down');
+    const plus = document.createElement('button'); plus.type = 'button'; plus.textContent = '+'; plus.setAttribute('aria-label', f.label + ' up');
+    const inp = document.createElement('input'); inp.id = 'f-' + f.k;
+    if (f.time) { inp.type = 'text'; inp.readOnly = true; inp.setAttribute('aria-live', 'polite'); }
+    else { inp.type = 'number'; inp.inputMode = 'decimal'; inp.min = f.min; inp.max = f.max; inp.step = f.step; }
+    const unit = document.createElement('span'); unit.className = 'unit'; unit.textContent = f.unit.toUpperCase();
+    minus.addEventListener('click', () => bump(f, -1));
+    plus.addEventListener('click', () => bump(f, +1));
+    inp.addEventListener('change', () => { if (!f.time) setField(f, parseFloat(inp.value)); });
+    inp.addEventListener('keydown', e => {
+      if (f.time && (e.key === 'ArrowUp' || e.key === 'ArrowRight')) { bump(f, +1); e.preventDefault(); }
+      if (f.time && (e.key === 'ArrowDown' || e.key === 'ArrowLeft')) { bump(f, -1); e.preventDefault(); }
+    });
+    ctl.append(minus, inp, unit, plus);
+    row.append(lbl, ctl); rowsEl.appendChild(row);
+    inputs[f.k] = inp;
+  }
+
+  function fieldRange(f) {
+    if (f.k === 'bed') return [S.start + 10, S.start + 23.75];
+    return [f.min, f.max];
+  }
+  function setField(f, v) {
+    if (!Number.isFinite(v)) { refreshPanel(); return; }
+    const [lo, hi] = fieldRange(f);
+    S[f.k] = clamp(Math.round(v / f.step) * f.step, lo, hi);
+    applySettings(); save(); refreshPanel();
+  }
+  function bump(f, dir) { setField(f, S[f.k] + dir * f.step); }
+  function refreshPanel() {
+    for (const f of FIELDS) {
+      const v = S[f.k];
+      inputs[f.k].value = f.time ? fmtT(v) : String(+v.toFixed(2));
+    }
+  }
+  refreshPanel();
+
+  cfgBtn.addEventListener('click', () => {
+    const open = cfg.hidden;
+    cfg.hidden = !open;
+    cfgBtn.setAttribute('aria-expanded', String(open));
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    Object.assign(S, DEF); applySettings(); save(); refreshPanel();
+    announce('Settings reset to defaults.');
+  });
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !cfg.hidden) { cfg.hidden = true; cfgBtn.setAttribute('aria-expanded', 'false'); cfgBtn.focus(); }
+  });
+
+  if (document.fonts && document.fonts.load) document.fonts.load('20px "Geist Mono"').catch(() => {});
+})();
+</script>
+</body>
+</html>
