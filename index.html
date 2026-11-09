@@ -65,6 +65,15 @@
   .tool:hover, .tool[aria-expanded="true"] { color: var(--fg-2); border-color: var(--mute); }
   .tool:active svg { transform: scale(0.92); }
   .tool:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  .icons { display: flex; gap: 6px; }
+  .cups { display: flex; height: 34px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 2px; }
+  .cups .tool { width: 32px; height: auto; border: 0; border-radius: 0; font: 18px/1 var(--font-mono); }
+  .cups .tool:active:not(:disabled) { color: var(--fg); }
+  .cups .tool:disabled { color: var(--mute-2); cursor: default; }
+  .cups output {
+    display: grid; place-items: center; width: 60px; border-inline: 1px solid var(--line);
+    font: 500 11px/1 var(--font-mono); letter-spacing: 0.1em; color: var(--fg-2); font-variant-numeric: tabular-nums;
+  }
   @media (prefers-reduced-motion: no-preference) {
     .tool svg { transition: transform 120ms ease-out; }
     .tool.spin svg { animation: spin 420ms ease-out; }
@@ -106,6 +115,8 @@
   .hint { font-size: 10px; color: var(--mute); line-height: 1.5; margin: 0; }
 
   @media (max-width: 699px) {
+    .tools { flex-direction: column; align-items: flex-end; }
+    .cups { order: 1; }
     .cfg {
       top: auto; right: 0; left: 0; bottom: 0; width: auto;
       border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
@@ -124,12 +135,19 @@
 <div class="stage" id="stage">
   <canvas id="c" tabindex="0" aria-label="Caffeine level through the day. Drag a cup to move it, tap the chart to add a cup, tap a selected cup to remove it."></canvas>
   <div class="tools">
-    <button class="tool" id="resetCups" type="button" title="Reset cups" aria-label="Reset cups to the default three">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-    </button>
-    <button class="tool" id="cfgBtn" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="cfg">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/></svg>
-    </button>
+    <div class="cups" role="group" aria-label="Number of cups">
+      <button class="tool" id="cupMinus" type="button" title="One cup less" aria-label="Remove a cup">−</button>
+      <output id="cupCount" for="cupMinus cupPlus">3 CUPS</output>
+      <button class="tool" id="cupPlus" type="button" title="One cup more" aria-label="Add a cup">+</button>
+    </div>
+    <div class="icons">
+      <button class="tool" id="resetCups" type="button" title="Reset cups" aria-label="Reset cups to the default three">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <button class="tool" id="cfgBtn" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="cfg">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/></svg>
+      </button>
+    </div>
   </div>
   <section class="cfg" id="cfg" hidden aria-label="Settings">
     <h2>Parameters</h2>
@@ -182,6 +200,7 @@
 
   // ---------- state ----------
   const DEFAULT_CUPS = [8, 11, 15.5];
+  const MAX_CUPS = 8;
   let cups = DEFAULT_CUPS.map(t => ({ t, sel: 0, act: 0 }));
   let selected = null, hovered = null, drag = null, pending = null, pointer = null;
   let maxMgAnim = 160, peakAlpha = 0;
@@ -216,7 +235,7 @@
         const v = +d.settings[f.k];
         if (Number.isFinite(v)) S[f.k] = v;
       }
-      if (d && Array.isArray(d.cups) && d.cups.length <= 8 && d.cups.every(v => Number.isFinite(v))) {
+      if (d && Array.isArray(d.cups) && d.cups.length <= MAX_CUPS && d.cups.every(v => Number.isFinite(v))) {
         cups = d.cups.map(t => ({ t, sel: 0, act: 0 }));
       }
     } catch (e) { /* ignore bad or blocked storage */ }
@@ -289,7 +308,7 @@
   }
 
   function footerText() {
-    if (!cups.length) return LY.compact ? 'TAP THE CHART TO ADD A CUP' : 'CLICK ON THE CHART TO ADD A CUP';
+    if (!cups.length) return LY.compact ? 'TAP THE CHART OR + TO ADD A CUP' : 'CLICK THE CHART OR + TO ADD A CUP';
     const sorted = [...cups].sort((a, b) => a.t - b.t);
     const others = sorted.slice(0, -1);
     const night = T => {
@@ -508,6 +527,7 @@
     const hl = Number.isInteger(S.halfLife) ? S.halfLife : S.halfLife.toFixed(1);
     text(`${n} ${n === 1 ? 'CUP' : 'CUPS'} · ${n * S.dose} MG · HALF-LIFE ${hl}H`, LY.padX, LY.subY, 20, '#717171');
     text(footerText(), LY.padX, LY.footY, 20, '#d8d8d8');
+    syncCount();
 
     requestAnimationFrame(frame);
   }
@@ -536,6 +556,7 @@
     return null;
   }
   const announce = s => { statusEl.textContent = s; };
+  const cupsWord = n => n + (n === 1 ? ' cup.' : ' cups.');
 
   canvas.addEventListener('pointerdown', e => {
     if (e.button !== undefined && e.button !== 0) return;
@@ -569,17 +590,17 @@
         cups = cups.filter(c => c !== drag.cup);
         if (selected === drag.cup) selected = null;
         hovered = null;
-        announce('Cup removed. ' + cups.length + ' cups.');
+        announce('Cup removed. ' + cupsWord(cups.length));
       } else {
         announce('Cup at ' + fmtT(drag.cup.t) + '. ' + Math.round(totalAt(S.bed)) + ' mg at bed.');
       }
       drag = null; save();
     } else if (pending) {
-      if (!pending.moved && cups.length < 8 && p.x >= LY.L && p.x <= LY.R) {
+      if (!pending.moved && cups.length < MAX_CUPS && p.x >= LY.L && p.x <= LY.R) {
         const t = Math.round(clamp(x2t(p.x), S.start, S.start + HOURS - 1 / 60) * 60) / 60;
         const c = { t, sel: 0, act: 0 };
         cups.push(c); hovered = c; save();
-        announce('Cup added at ' + fmtT(t) + '. ' + cups.length + ' cups.');
+        announce('Cup added at ' + fmtT(t) + '. ' + cupsWord(cups.length));
       }
       pending = null;
     }
@@ -667,6 +688,46 @@
     resetBtn.classList.remove('spin'); void resetBtn.offsetWidth; resetBtn.classList.add('spin');
     announce('Cups reset: 08:00, 11:00 and 15:30.');
   });
+  // ---------- cup counter ----------
+  const minusBtn = document.getElementById('cupMinus');
+  const plusBtn = document.getElementById('cupPlus');
+  const countEl = document.getElementById('cupCount');
+  let shownCount = -1;
+  function syncCount() {
+    const n = cups.length;
+    if (n === shownCount) return;
+    shownCount = n;
+    countEl.textContent = n + (n === 1 ? ' CUP' : ' CUPS');
+    minusBtn.disabled = n === 0;
+    plusBtn.disabled = n >= MAX_CUPS;
+  }
+  // next cup: 3 h after the last cup of the day; when that passes bed time, the middle of the widest gap before bed
+  function nextCupTime() {
+    const day = cups.map(c => c.t).filter(t => t <= S.bed).sort((a, b) => a - b);
+    if (!day.length) return clamp(8, S.start, S.bed);
+    const last = day[day.length - 1];
+    if (last + 3 < S.bed) return last + 3;
+    let gap = 0, mid = last, prev = S.start;
+    for (const t of [...day, S.bed]) {
+      if (t - prev > gap) { gap = t - prev; mid = (prev + t) / 2; }
+      prev = t;
+    }
+    return Math.round(mid * 4) / 4;
+  }
+  plusBtn.addEventListener('click', () => {
+    if (cups.length >= MAX_CUPS) return;
+    const c = { t: nextCupTime(), sel: 0, act: 0 };
+    cups.push(c); selected = c; hovered = null; save();
+    announce('Cup added at ' + fmtT(c.t) + '. ' + cupsWord(cups.length));
+  });
+  minusBtn.addEventListener('click', () => {
+    if (!cups.length) return;
+    const gone = selected || cups.reduce((a, b) => (b.t > a.t ? b : a));
+    cups = cups.filter(c => c !== gone);
+    selected = null; hovered = null; save();
+    announce('Cup at ' + fmtT(gone.t) + ' removed. ' + cupsWord(cups.length));
+  });
+
   addEventListener('keydown', e => {
     if (e.key === 'Escape' && !cfg.hidden) { cfg.hidden = true; cfgBtn.setAttribute('aria-expanded', 'false'); cfgBtn.focus(); }
   });

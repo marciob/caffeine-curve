@@ -19,6 +19,7 @@ Differences from the original are listed at the end.
 - **Hover** over the chart to read the level at any time of day: `18:55 · 95 MG`.
 - **Drag** a cup (the dot under the axis, or the bright column just after it) to move it.
 - **Click** an empty spot on the chart to add a cup. Click a selected cup to remove it.
+- **Cups** (top right, `−` and `+`) sets the number of cups, 0 to 8. `+` adds a cup 3 hours after the last cup of the day. If that is after bed time, the new cup goes in the middle of the widest gap before bed. `−` removes the selected cup, or the latest one.
 - **Reset** (top right, circular arrow) puts the three default cups back: 08:00, 11:00 and 15:30.
 - **Settings** (top right, sliders) opens the parameters. They are saved in your browser. **Defaults** inside the panel resets only the parameters.
 - Keyboard: `Esc` deselects, `Delete` removes the selected cup, arrow keys move it by 15 minutes.
@@ -77,7 +78,7 @@ Fonts: SF Mono when the system has it, otherwise Geist Mono from Google Fonts.
 
 - The exact font, dot sizes and fade curves are estimates from a compressed video.
 - The 50 mg line follows the chart's scale. In the video it stays fixed.
-- The settings panel, the phone layout, keyboard controls and browser storage are additions.
+- The cup counter (`−` / `+`), the settings panel, the phone layout, keyboard controls and browser storage are additions.
 
 ## License
 
